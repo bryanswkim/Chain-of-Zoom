@@ -111,7 +111,6 @@ def get_validation_prompt(args, image, prompt_image_path, dape_model=None, vlm_m
             model.text_enc_3.to('cpu')
             model.transformer.to('cpu')
             model.vae.to('cpu')
-            vlm_model.to('cuda') # vlm_model should already be on its device_map="auto" device
 
         generated_ids = vlm_model.generate(**inputs, max_new_tokens=128)
         generated_ids_trimmed = [
@@ -125,7 +124,6 @@ def get_validation_prompt(args, image, prompt_image_path, dape_model=None, vlm_m
 
         if args.efficient_memory and 'model' in globals() and hasattr(model, 'text_enc_1'):
             print("Restoring SR model components to original devices.")
-            vlm_model.to('cpu') # If vlm_model was moved to a specific cuda device and needs to be offloaded
             model.text_enc_1.to(original_sr_devices['text_enc_1'])
             model.text_enc_2.to(original_sr_devices['text_enc_2'])
             model.text_enc_3.to(original_sr_devices['text_enc_3'])
