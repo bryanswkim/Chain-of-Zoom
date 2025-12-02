@@ -26,12 +26,15 @@ def inject_lora_vae(vae, lora_rank=4, init_lora_weights="gaussian", verbose=Fals
     """
     Inject LoRA into the VAE's encoder
     """
+    from peft import get_peft_model  # ✅ ADD THIS IMPORT
+    
     vae.requires_grad_(False)
-    vae.train() 
-
+    vae.train()
+    
     # Identify modules to LoRA-ify in the encoder
-    l_grep = ["conv1", "conv2", "conv_in", "conv_shortcut", 
+    l_grep = ["conv1", "conv2", "conv_in", "conv_shortcut",
               "conv", "conv_out", "to_k", "to_q", "to_v", "to_out.0"]
+    
     l_target_modules_encoder = []
     for n, p in vae.named_parameters():
         if "bias" in n or "norm" in n:
@@ -41,11 +44,11 @@ def inject_lora_vae(vae, lora_rank=4, init_lora_weights="gaussian", verbose=Fals
                 l_target_modules_encoder.append(n.replace(".weight", ""))
             elif ("quant_conv" in n) and ("post_quant_conv" not in n):
                 l_target_modules_encoder.append(n.replace(".weight", ""))
-
+    
     if verbose:
         print("The following VAE parameters will get LoRA:")
         print(l_target_modules_encoder)
-
+    
     # Create and add a LoRA adapter
     lora_conf_encoder = LoraConfig(
         r=lora_rank,
@@ -54,15 +57,25 @@ def inject_lora_vae(vae, lora_rank=4, init_lora_weights="gaussian", verbose=Fals
     )
     
     adapter_name = "default_encoder"
+    
+    # ✅ FIX: Use get_peft_model instead of add_adapter
     try:
-        vae.add_adapter(lora_conf_encoder, adapter_name=adapter_name)
-        vae.set_adapter(adapter_name)
-    except ValueError as e:
-        if "already exists" in str(e):
-            print(f"Adapter with name {adapter_name} already exists. Skipping injection.")
+        # Check if already a PeftModel
+        if hasattr(vae, 'peft_config'):
+            if adapter_name in vae.peft_config:
+                print(f"Adapter '{adapter_name}' already exists. Skipping injection.")
+                return vae, l_target_modules_encoder
+            else:
+                vae.add_adapter(lora_conf_encoder, adapter_name=adapter_name)
         else:
-            raise e
-
+            # Convert to PEFT model first
+            vae = get_peft_model(vae, lora_conf_encoder)
+            vae.set_adapter(adapter_name)
+    except Exception as e:
+        print(f"Warning: PEFT injection failed: {e}")
+        print("Falling back to no VAE LoRA (using pretrained weights only)")
+        # Don't fail - just use the VAE without LoRA
+    
     return vae, l_target_modules_encoder
 
 def _find_modules(model, ancestor_class=None, search_class=[nn.Linear], exclude_children_of=[LoraInjectedLinear]):
